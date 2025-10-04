@@ -1,3 +1,4 @@
-timestamp,name,username,badge,note
-2025-10-04T11:13:52,,kobjosed,,
-2025-10-04T11:24:49,Joseph Kobi,kobjosed,,
+timestamp,name,username,badge,note,shift
+2025-10-04T11:13:52,,kobjosed,,,
+2025-10-04T11:24:49,Joseph Kobi,kobjosed,,,
+2025-10-04T13:17:51,kobjosed,,,,Day

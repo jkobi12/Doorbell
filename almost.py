@@ -1,26 +1,24 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, time
 import numpy as np
 import io
 import os
 
-# ------------------------------
+# ==============================
 # Helpers
-# ------------------------------
+# ==============================
 
 def generate_tone(freq=880, duration=0.9, sample_rate=44100, volume=0.4):
-    """Return a WAV byte stream for a sine tone.
-    Browsers happily play this via st.audio()."""
+    """Return a WAV byte stream for a sine tone (for st.audio)."""
     t = np.linspace(0, duration, int(sample_rate * duration), False)
     tone = np.sin(freq * 2 * np.pi * t) * volume
-    # Convert to 16-bit PCM WAV in-memory
     tone_int16 = np.int16(tone * 32767)
     import wave
     buf = io.BytesIO()
-    with wave.open(buf, 'wb') as wf:
+    with wave.open(buf, "wb") as wf:
         wf.setnchannels(1)
-        wf.setsampwidth(2)  # 16-bit
+        wf.setsampwidth(2)
         wf.setframerate(sample_rate)
         wf.writeframes(tone_int16.tobytes())
     buf.seek(0)
@@ -28,18 +26,16 @@ def generate_tone(freq=880, duration=0.9, sample_rate=44100, volume=0.4):
 
 LOG_PATH = "doorbell_log.csv"
 
-# ------------------------------
-# Shift configuration (customize here)
-# ------------------------------
-# Define shifts as (name, start, end) in 24h 'HH:MM'. If end < start it is an overnight shift.
+# ==============================
+# Shift configuration
+# ==============================
+# Define shifts as (name, start, end) in 24h 'HH:MM'. If end < start it's overnight.
 SHIFT_DEFS = [
-    ("Day", "06:00", "17:00"),       # 6:00 → 17:00
-    ("Night", "17:30", "04:00"),     # 17:30 → 04:00 next day
+    ("Day", "06:00", "17:00"),
+    ("Night", "17:30", "04:00"),
 ]
 
-from datetime import time
-
-def _t(hhmm:str) -> time:
+def _t(hhmm: str) -> time:
     hh, mm = map(int, hhmm.split(":"))
     return time(hh, mm)
 
@@ -62,10 +58,8 @@ def load_log():
         try:
             return pd.read_csv(LOG_PATH)
         except Exception:
-            return pd.DataFrame(columns=["timestamp","name","username","badge","note","shift"])
-    return pd.DataFrame(columns=["timestamp","name","username","badge","note","shift"])
-    return pd.DataFrame(columns=["timestamp","name","username","badge","note"])
-
+            return pd.DataFrame(columns=["timestamp", "name", "username", "badge", "note", "shift"])
+    return pd.DataFrame(columns=["timestamp", "name", "username", "badge", "note", "shift"])
 
 def append_log(row_dict):
     df = load_log().copy()
@@ -73,9 +67,9 @@ def append_log(row_dict):
     df.to_csv(LOG_PATH, index=False)
     load_log.clear()  # reset cache
 
-# ------------------------------
-# UI
-# ------------------------------
+# ==============================
+# Page setup
+# ==============================
 st.set_page_config(page_title="Doorbell | Scan or Type", layout="wide")
 
 st.markdown(
@@ -84,160 +78,191 @@ st.markdown(
     .bigbutton button {font-size: 28px; padding: 20px 0; border-radius: 18px; height:64px;}
     .kbdbox input {font-size: 22px !important; height: 64px;}
     .center {text-align:center}
-    .label {font-weight:600; color:#555}
+    .label {font-weight:600; color:#bbb}
     </style>
     """,
     unsafe_allow_html=True,
 )
 
 st.title("🔔 Doorbell — ORH3 (Demo)")
+
+# Header with live clock on right
+hdr_left, hdr_right = st.columns([3, 1])
+with hdr_right:
+    now = datetime.now()
+    st.markdown(
+        f"<div style='text-align:right; font-size:28px; font-weight:700;'>"
+        f"{now.strftime('%I:%M:%S %p')}<br><span style='font-size:14px; font-weight:500;'>"
+        f"{now.strftime('%A, %b %d, %Y')}</span></div>",
+        unsafe_allow_html=True,
+    )
+
 current_shift = detect_shift()
-st.caption(f"Scan your badge or enter your info, then press Ring. A tone will play and your entry is logged.  ")
+st.caption("Scan your badge or enter your info, then press Ring. A tone will play and your entry is logged.")
 st.info(f"Current shift: **{current_shift}**  | Day: 06:00–17:00  | Night: 17:30–04:00", icon="🕒")
 
-# Session state for auto-submit and keyboard focus
-if "trigger_ring" not in st.session_state:
-    st.session_state.trigger_ring = False
-if "active_field" not in st.session_state:
-    st.session_state.active_field = "badge"  # default where keyboard types into
+# ==============================
+# Session state init
+# ==============================
+ss = st.session_state
+if "trigger_ring" not in ss:
+    ss.trigger_ring = False
+if "effective_shift" not in ss:
+    ss.effective_shift = current_shift
+if "active_field" not in ss:
+    ss.active_field = "badge_input"  # default focus for on-screen keyboard
+# Widget values (actual single source of truth for inputs)
+ss.setdefault("name_input", "")
+ss.setdefault("username_input", "")
+ss.setdefault("badge_input", "")
+ss.setdefault("note_input", "")
+# Keyboard modes
+ss.setdefault("caps_on", False)
+ss.setdefault("symbols_on", False)
 
-# storage bound to inputs so virtual keyboard can edit them
-for key in ["name","username","badge","note"]:
-    st.session_state.setdefault(key, "")
-
-
-def on_badge_scanned():
-    val = st.session_state.get("badge", "").strip()
-    if len(val) >= 5:
-        st.session_state.trigger_ring = True
-
-
-# Virtual keyboard helpers
-# State for keyboard modes
-st.session_state.setdefault("caps_on", False)
-st.session_state.setdefault("symbols_on", False)
-
-ALPHA_ROWS = [
-    list("1234567890"),
-    list("qwertyuiop"),
-    list("asdfghjkl"),
-    list("zxcvbnm"),
-]
-EXTRA_KEYS = ["@", ".", "-", "_", "/"]
-
-SYMBOL_ROWS = [
-    list("!@#$%^&*()"),
-    list("~`|\/?"),
-    list("[]{}<>") ,
-    list(":;\"'.,+")
-]
-SYMBOL_EXTRA = ["=", "-", "_", "+"]
-
+# ==============================
+# Callbacks
+# ==============================
 SPECIALS = {"SPACE": " ", "BACK": "<BACK>", "CLEAR": "<CLEAR>", "CAPS": "<CAPS>", "SYM": "<SYM>"}
 
+ALPHA_ROWS = [list("1234567890"), list("qwertyuiop"), list("asdfghjkl"), list("zxcvbnm")]
+EXTRA_KEYS = ["@", ".", "-", "_", "/"]
+SYMBOL_ROWS = [list("!@#$%^&*()"), list("~`|\/?"), list("[]{}<>") , list(":;\"'.,+")]
+SYMBOL_EXTRA = ["=", "-", "_", "+"]
+
+def on_badge_scanned():
+    val = ss.get("badge_input", "").strip()
+    if len(val) >= 5:
+        ss.trigger_ring = True
 
 def press_key(val: str):
-    # Mode switching
+    target_key = ss.active_field  # one of name_input, username_input, badge_input, note_input
     if val == SPECIALS["CAPS"]:
-        st.session_state.caps_on = not st.session_state.caps_on
+        ss.caps_on = not ss.caps_on
         return
     if val == SPECIALS["SYM"]:
-        st.session_state.symbols_on = not st.session_state.symbols_on
+        ss.symbols_on = not ss.symbols_on
         return
 
-    target = st.session_state.active_field
-    current = st.session_state.get(target, "")
+    current = ss.get(target_key, "")
     if val == SPECIALS["BACK"]:
-        st.session_state[target] = current[:-1]
+        ss[target_key] = current[:-1]
     elif val == SPECIALS["CLEAR"]:
-        st.session_state[target] = ""
+        ss[target_key] = ""
     else:
-        # apply CAPS for alphabetic keys only when symbols layer is off
-        if (not st.session_state.symbols_on) and val.isalpha():
-            val = val.upper() if st.session_state.caps_on else val.lower()
-        st.session_state[target] = current + val
+        if (not ss.symbols_on) and val.isalpha():
+            val = val.upper() if ss.caps_on else val.lower()
+        ss[target_key] = current + val
 
-
-
-left, right = st.columns([1,1])
+# ==============================
+# Inputs
+# ==============================
+left, right = st.columns([1, 1])
 with left:
     st.markdown('<div class="label">Full name</div>', unsafe_allow_html=True)
-    st.text_input("Full name", key="name", placeholder="Jane Doe", label_visibility="collapsed")
+    st.text_input(
+        "Full name",
+        key="name_input",
+        placeholder="Jane Doe",
+        label_visibility="collapsed",
+    )
     st.markdown('<div class="label">Username / Login</div>', unsafe_allow_html=True)
-    st.text_input("Username / Login", key="username", placeholder="jdoe", label_visibility="collapsed")
+    st.text_input(
+        "Username / Login",
+        key="username_input",
+        placeholder="jdoe",
+        label_visibility="collapsed",
+    )
 with right:
     st.markdown('<div class="label">Scan your badge or type ID</div>', unsafe_allow_html=True)
-    st.text_input("Badge ID", key="badge", placeholder="(Scan barcode here)", on_change=on_badge_scanned, label_visibility="collapsed")
-    st.text_input("Optional note", key="note", placeholder="Where to meet, reason, etc.", label_visibility="collapsed")
+    st.text_input(
+        "Badge ID",
+        key="badge_input",
+        on_change=on_badge_scanned,
+        placeholder="(Scan barcode here)",
+        label_visibility="collapsed",
+    )
+    st.text_input(
+        "Optional note",
+        key="note_input",
+        placeholder="Where to meet, reason, etc.",
+        label_visibility="collapsed",
+    )
 
-# Field focus selector for the on-screen keyboard
+# Active field selector
 st.write("")
 fc1, fc2, fc3, fc4 = st.columns(4)
 with fc1:
-    if st.toggle("Type: Name", value=(st.session_state.active_field=="name")):
-        st.session_state.active_field = "name"
+    if st.toggle("Type: Name", value=(ss.active_field == "name_input")):
+        ss.active_field = "name_input"
 with fc2:
-    if st.toggle("Type: Username", value=(st.session_state.active_field=="username")):
-        st.session_state.active_field = "username"
+    if st.toggle("Type: Username", value=(ss.active_field == "username_input")):
+        ss.active_field = "username_input"
 with fc3:
-    if st.toggle("Type: Badge", value=(st.session_state.active_field=="badge")):
-        st.session_state.active_field = "badge"
+    if st.toggle("Type: Badge", value=(ss.active_field == "badge_input")):
+        ss.active_field = "badge_input"
 with fc4:
-    if st.toggle("Type: Note", value=(st.session_state.active_field=="note")):
-        st.session_state.active_field = "note"
+    if st.toggle("Type: Note", value=(ss.active_field == "note_input")):
+        ss.active_field = "note_input"
 
-# Render large on-screen keyboard
+# ==============================
+# On‑screen keyboard
+# ==============================
 st.subheader("On‑screen Keyboard")
-# Mode toggles row
-mt1, mt2, mt3 = st.columns([1,1,6])
+mt1, mt2, mt3 = st.columns([1, 1, 6])
 with mt1:
-    cap_label = "CAPS ON" if st.session_state.caps_on else "Caps"
-    if st.button(cap_label, key="k_caps", use_container_width=True):
-        press_key(SPECIALS["CAPS"])
+    st.button(
+        "CAPS ON" if ss.caps_on else "Caps",
+        key="k_caps",
+        use_container_width=True,
+        on_click=press_key,
+        args=(SPECIALS["CAPS"],),
+    )
 with mt2:
-    sym_label = "!#1" if not st.session_state.symbols_on else "ABC"
-    if st.button(sym_label, key="k_sym", use_container_width=True):
-        press_key(SPECIALS["SYM"])
+    st.button(
+        "!#1" if not ss.symbols_on else "ABC",
+        key="k_sym",
+        use_container_width=True,
+        on_click=press_key,
+        args=(SPECIALS["SYM"],),
+    )
 with mt3:
-    if st.button("CLEAR", key="k_clear_top", use_container_width=True):
-        press_key(SPECIALS["CLEAR"])
+    st.button("CLEAR", key="k_clear_top", use_container_width=True, on_click=press_key, args=(SPECIALS["CLEAR"],))
 
-# Choose layout based on symbols mode
-rows = SYMBOL_ROWS if st.session_state.symbols_on else ALPHA_ROWS
+rows = SYMBOL_ROWS if ss.symbols_on else ALPHA_ROWS
 for ridx, row in enumerate(rows):
     cols = st.columns(len(row))
     for idx, ch in enumerate(row):
-        # Render uppercase on buttons when caps on (alpha layer only)
-        label = ch
-        if not st.session_state.symbols_on and ch.isalpha() and st.session_state.caps_on:
-            label = ch.upper()
+        label = ch.upper() if (not ss.symbols_on and ch.isalpha() and ss.caps_on) else ch
         with cols[idx]:
-            if st.button(label, key=f"k_{label}_{ridx}_{idx}", use_container_width=True):
-                press_key(ch)
-# Extras and actions
-extra = (SYMBOL_EXTRA if st.session_state.symbols_on else EXTRA_KEYS) + [" "]
-cols = st.columns(len(extra)+2)
+            st.button(
+                label,
+                key=f"k_{label}_{ridx}_{idx}",
+                use_container_width=True,
+                on_click=press_key,
+                args=(ch,),
+            )
+
+extra = (SYMBOL_EXTRA if ss.symbols_on else EXTRA_KEYS)
+cols = st.columns(len(extra) + 2)
 for i, ch in enumerate(extra):
     with cols[i]:
-        if st.button(ch, key=f"k_extra_{ch}_{i}", use_container_width=True):
-            press_key(ch if ch != "SPACE" else SPECIALS["SPACE"])
+        st.button(ch, key=f"k_extra_{ch}_{i}", use_container_width=True, on_click=press_key, args=(ch,))
 with cols[len(extra)]:
-    if st.button("BACK", key="k_back", use_container_width=True):
-        press_key(SPECIALS["BACK"])
-with cols[len(extra)+1]:
-    if st.button("SPACE", key="k_space", use_container_width=True):
-        press_key(SPECIALS["SPACE"])
+    st.button("BACK", key="k_back", use_container_width=True, on_click=press_key, args=(SPECIALS["BACK"],))
+with cols[len(extra) + 1]:
+    st.button("SPACE", key="k_space", use_container_width=True, on_click=press_key, args=(SPECIALS["SPACE"],))
 
 ring_clicked = st.button("🔔 Ring", use_container_width=True)
 
-# Conditions that trigger the bell: button click OR scanner auto trigger
-should_ring = ring_clicked or st.session_state.get("trigger_ring", False)
-
-# Pull current field values from session_state
-_name = st.session_state.get("name", "")
-_username = st.session_state.get("username", "")
-_badge = st.session_state.get("badge", "")
-_note = st.session_state.get("note", "")
+# ==============================
+# Ring handler
+# ==============================
+should_ring = ring_clicked or ss.get("trigger_ring", False)
+_name = ss.get("name_input", "")
+_username = ss.get("username_input", "")
+_badge = ss.get("badge_input", "")
+_note = ss.get("note_input", "")
 
 missing_all = (not _name.strip()) and (not _username.strip()) and (not _badge.strip())
 
@@ -248,17 +273,15 @@ if should_ring:
         st.success("Bell rung! Someone will be with you shortly.")
         st.write(":clock1: ", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         st.audio(generate_tone(), format="audio/wav")
-
         append_log({
             "timestamp": datetime.now().isoformat(timespec="seconds"),
             "name": _name.strip(),
             "username": _username.strip(),
             "badge": _badge.strip(),
             "note": _note.strip(),
-            "shift": st.session_state.get("effective_shift", detect_shift()),
+            "shift": ss.get("effective_shift", detect_shift()),
         })
-
-        st.session_state.trigger_ring = False
+        ss.trigger_ring = False
 
 st.divider()
 
@@ -275,24 +298,24 @@ with st.expander("Recent rings", expanded=True):
             mime="text/csv",
         )
 
-# Optional: admin clear
+# ==============================
+# Sidebar admin
+# ==============================
 with st.sidebar:
     st.header("Admin")
     st.caption("Quick utilities for the person managing this station.")
-
-    # Shift override
-    mode = st.radio("Shift mode", ["Auto","Day","Night"], index=0)
+    mode = st.radio("Shift mode", ["Auto", "Day", "Night"], index=0)
     if mode == "Auto":
-        st.session_state["effective_shift"] = detect_shift()
+        ss.effective_shift = detect_shift()
     else:
-        st.session_state["effective_shift"] = mode
-    st.write("Effective shift:", st.session_state["effective_shift"])
+        ss.effective_shift = mode
+    st.write("Effective shift:", ss.effective_shift)
 
     if st.button("Clear form fields"):
-        for k in ["badge",]:
-            if k in st.session_state:
-                st.session_state[k] = ""
+        for k in ["name_input", "username_input", "badge_input", "note_input"]:
+            ss[k] = ""
         st.rerun()
+
     if st.button("Reset log (start fresh)"):
         try:
             if os.path.exists(LOG_PATH):
@@ -302,10 +325,17 @@ with st.sidebar:
         except Exception as e:
             st.error(f"Couldn't clear log: {e}")
 
-st.markdown("""
+st.markdown(
+    """
 ---
 **Tips**
 - Most barcode badge scanners act like a keyboard and end with **Enter**. Focus the *Badge ID* field and scan — the bell will auto-trigger.
 - Save this page fullscreen for a kiosk-like experience. Attach speakers for a louder chime.
 - Change the title/location text at the top to match your site.
-""")
+    """
+)
+
+# Live clock tick
+import time as _time
+_time.sleep(1)
+st.rerun()

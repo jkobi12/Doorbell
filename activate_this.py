@@ -99,6 +99,14 @@ def df_to_excel_bytes(df: pd.DataFrame, filename_sheet="Rings") -> bytes:
         df.to_excel(writer, index=False, sheet_name=filename_sheet)
     buf.seek(0)
     return buf.getvalue()
+# ==============================
+# Add this function before your Inputs section
+# ==============================
+
+def set_target(key_name: str):
+    """Set which text input field the on-screen keyboard should type into."""
+    st.session_state.active_field = key_name
+
 
 def make_pdf_bytes(summary_text: str, table_df: pd.DataFrame) -> bytes:
     # Lightweight PDF using reportlab

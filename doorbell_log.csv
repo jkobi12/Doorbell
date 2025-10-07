@@ -1,12 +1,13 @@
-timestamp,name,username,badge,note,shift
-2025-10-04T11:13:52,,kobjosed,,,
-2025-10-04T11:24:49,Joseph Kobi,kobjosed,,,
-2025-10-04T13:17:51,kobjosed,,,,Day
-2025-10-04T14:19:39,,kobjosed,,,Day
-2025-10-04T14:19:49,,kobjosed,,,Day
-2025-10-04T14:19:52,,kobjosed,,,Day
-2025-10-04T14:19:54,,kobjosed,,,Day
-2025-10-04T14:19:56,,kobjosed,,,Day
-2025-10-04T14:20:00,,kobjosed,,,Day
-2025-10-04T14:20:03,,kobjosed,,,Day
-2025-10-04T14:36:11,,kobjosed,,,Day
+timestamp,name,username,badge,note,shift,photo
+2025-10-04T11:13:52,,kobjosed,,,,
+2025-10-04T11:24:49,Joseph Kobi,kobjosed,,,,
+2025-10-04T13:17:51,kobjosed,,,,Day,
+2025-10-04T14:19:39,,kobjosed,,,Day,
+2025-10-04T14:19:49,,kobjosed,,,Day,
+2025-10-04T14:19:52,,kobjosed,,,Day,
+2025-10-04T14:19:54,,kobjosed,,,Day,
+2025-10-04T14:19:56,,kobjosed,,,Day,
+2025-10-04T14:20:00,,kobjosed,,,Day,
+2025-10-04T14:20:03,,kobjosed,,,Day,
+2025-10-04T14:36:11,,kobjosed,,,Day,
+2025-10-07T07:53:37,,kobjosed,,,Day,

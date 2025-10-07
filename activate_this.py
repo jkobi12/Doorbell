@@ -168,7 +168,11 @@ with kiosk_tab:
         )
 
     current_shift = detect_shift()
-    # --- Camera block (smaller size for space) ---
+    # --- Session state MUST be defined before camera uses it ---
+    ss = st.session_state
+    ss.setdefault("last_photo_bytes", None)
+
+    # --- Camera block (compact) ---
     st.markdown("### Camera")
     cam_col, help_col = st.columns([1.2, 2])
 
@@ -190,10 +194,7 @@ with kiosk_tab:
             """,
             unsafe_allow_html=True,
         )
-        photo = st.camera_input(
-            "Tap **Take photo** to arm camera",
-            key="cam_input",
-        )
+        photo = st.camera_input("Tap **Take photo** to arm camera", key="cam_input")
         if photo is not None:
             ss.last_photo_bytes = photo.getvalue()
 
@@ -201,7 +202,7 @@ with kiosk_tab:
         st.caption(
             "When a visitor scans a badge, types their info, and taps **Ring**, "
             "the most recent photo (on the left) is saved automatically. "
-            "Camera preview is now compact to save space."
+            "Camera preview is compact to save space."
         )
 
     st.info(f"Current shift: **{current_shift}**  | Day: 06:00–17:00  | Night: 17:30–04:00", icon="🕒")
